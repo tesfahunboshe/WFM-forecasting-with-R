@@ -1,361 +1,419 @@
 ---
 title: "Workforce Management Forecasting with R"
-author: "Tesfahun Tegene Bosh"
-date: "20/02/2022"
-output: html_document
+author: "Tesfahun Tegene Boshe"
+date: "03/03/2022"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: show
+    keep_md: true
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+# Introduction
 
-Forecasting is the first important part of workforce management planning. WFM forecastors creaet the forecast of ,including others, the volume of conversations to be expected in some future time. While there is not a single best method for forecasting, we will discuss some of the most commonly used approaches in time series forecasting. We will also cover the metrics which can indicate the accuracy of the forecast. 
+Forecasting is the first important stage of workforce management planning. WFM forecastors create the forecast of ,including others, volume of conversations to be expected in some future time. Forecasting future contacts is a difficult task because of the uncertainty associated with the many factors that determine contacts as well as the nature of distribution of contacts in time.  
 
-Let's start with some introduction to the time series data. 
+Time series data is an object observed in many consecutive units of time in chronological order. There are three various methods of dealing with time series forecasting. 
 
-```{r cars}
-HistoricalData <- read.csv("C:/Users/48574/Documents/Data Science/TimeSeriesForecast/historicalData.csv")
+**Time series models** - Time series models define the current value of a variable as a function of its own history. Thus no other parameter is involved. 
+
+**Econometric models** - Econometric models use other supportive variables to model the variation in the target variable.
+
+**Hybrid models** - Hybrid models enjoy the best of the two worlds. 
+
+While there is not a single best method for forecasting, there are widely used methods and best practices. We will discuss some of the most commonly used time series models and hybrid approaches in this blog. We will also cover the metrics which can indicate the accuracy of the forecast. 
+
+*accuracy()* function from forecast package gives mean error (ME), root mean square error (RMSE), mean absolute error (MAE), mean percentage error (MPE), mean absolute percentage (MAPE), mean absolute squared error (MASE), autocorrelation function index (ACFI) and Theil's U values. 
+
+MAPE is considered the best accuracy measure since it is not sensitive to sign of error and the magnitude of units. We will use MAPE measures to compare the accuracy of different methods to be discussed. 
+
+
+```{r, echo=F}
+
+setwd("C:/Users/Tesfahun Boshe/Documents/WFM/WFM-forecasting-with-R")
+```
+
+## EDA
+
+Loading the data
+```{r}
+HistoricalData <- read.csv("historicalData.csv")
+
+```
+
+### Data Description
+
+The data we will use is historical monthly volume data from Jan 2019 to Dec 2022 from a hypothetical contact center for a single channel.
+
+* Period - first day of the month representing the particular month
+* Email - the number of email contacts
+* Phone - the number of phone call contacts
+
+```{r}
+
 HistoricalData$Period <- as.Date(HistoricalData$Period,format = "%d/%m/%Y")
-HistoricalData$Volume <- as.numeric(HistoricalData$Volume)
+HistoricalData$Email <- as.numeric(HistoricalData$Email)
+HistoricalData$Phone <- as.numeric(HistoricalData$Phone)
 str(HistoricalData)
-```
-
-
-```{r}
-# xts package
-
-library(xts)
-library(fpp2)
-# data_ts <- xts(HistoricalData,order.by = HistoricalData$Period)[,2] # define a time series object
-
-data_ts <- ts(HistoricalData[,2], frequency = 12)
 
 ```
 
+Our goal is to forecast the email contacts for the next 12 months. The phone contacts will be used as an additional variable when we discuss hybrid models. 
+
+Let's define the Email column as a time series object. *ts()* function from stats package does just that. 
 ```{r}
 
-# time series plots
+data_ts <- ts(HistoricalData[,2], frequency = 12) # 12 since monthly data
 
-autoplot(data_ts)
 ```
 
-```{r}
+### Time Series Plots
 
-ggseasonplot(data_ts)
+Time series plots help us to identify outliers in the data. The outliers need to be handled before modeling. 
+
+To plot the time series data, we will use fpp2 package. 
+```{r}
+# install.packages("fpp2")
+library(fpp2) 
+
+autoplot(data_ts)  # time series plot
 
 ```
 
 ```{r}
 
-ggseasonplot(data_ts, polar = T)
+ggseasonplot(data_ts,main = "Season Plot") # time series plot for each season
+
 ```
 
 ```{r}
-# plots
-ggsubseriesplot(data_ts)
 
-# lag plot of the oil data
-gglagplot(data_ts)
-
-# Create an ACF plot
-ggAcf(data_ts)
-
+ggseasonplot(data_ts, polar = T,main = "Polar Season Plot") # polar season plot
 ```
+
 
 ### Data partitioning
+It is important to test your models on the historical data. We will, therefore, divide our historical data to train and test samples. The true test data is ofcourse unknown and it is in the future, however, testing on a out-of-sample data gives you confidence that the model will be robust against the future reality as well. 
+
 
 ```{r}
 
-train <- window(data_ts, start = c(2019,1))
-train <- subset(data_ts, end = length(data_ts) - 12)
+train <- subset(data_ts, end = length(data_ts) - 12) # year 2019 and 2020
+test <- subset(data_ts, start = length(data_ts) - 12+1) # 2021 data
 
 ```
 
-## Methods
+# Methods
 
-1. Naive Method/ Random walk without drift
+## 1. Naive Method/ Random walk without drift
+
+*naive()* function from *forecast* base package can be used for naive forecasts. Naive forecast extends the last value for the selected forecast period. 
 
 ```{r}
 
-fc_naive <- naive(train, 12)
-summary(fc_naive)
-autoplot(fc_naive)
+fc_naive <- naive(train, 12) # forecast 12 periods ahead
 
+autoplot(fc_naive) # train, forecast together. 
+```
+
+We can check the error band and the residuals. 
+```{r}
+
+summary(fc_naive)
 checkresiduals(fc_naive) # Do they look like white noise? 
 ```
 
-Seasonal naive
+## 2. Random Walk with Drift - Seasonal Naive
+
+Instead of extending the very last instance of train data, we can extend the respective last value from the last period for each month using seasonal naive models. 
 
 ```{r}
 
 fc_snaive <- snaive(train, 12)
-summary(fc_snaive)
-autoplot(fc_snaive)
+autoplot(fc_snaive) # captures some seasonality in the data
 
-checkresiduals(fc_snaive)
+```
+
+```{r}
+# error band and the residuals
+checkresiduals(fc_snaive) # does the residual look like white noise?
+summary(fc_snaive)
 ```
 
 
 ```{r}
 #accuracy
-accuracy(fc_snaive, data_ts)
+accuracy(fc_snaive, data_ts)['Test set','MAPE']
 
 ```
 
-2. Random Walk with Drift
-3. Simple Averaging Method
-4. Weighted Average 
-5. Moving Average method
-6. Weighted moving average
-7.Holt-Winters exponential smoothing method (triple exponential smoothing)
+## 3.Holt-Winter's exponential smoothing method (triple exponential smoothing)
 
+*ses()*,*holt()*,*hw()* functions from the base package - *forecast* can be used for Holt-Winter's exponential smoothing algorithm. We need to check whether or not our data has trend, seasonality. Or we can be lazy and use *ets()* function from the same package that works great in all cases.
+
+a. Simple exponential smoothing - no trend, seasonality
 ```{r}
 
-# Simple exponential smoothing 
-fc_ses <- ses(data_ts, h = 12)
+fc_ses <- ses(train, h = 12) # only for a stationary ts
 
+```
 
-
-autoplot(fc_ses) + autolayer(fitted(fc_ses))
+```{r}
+autoplot(fc_ses) # forecast plot
 
 ```
 
 
+b. Simple exponential smoothing with trend
 ```{r}
-
-# Simple exponential smoothing with trend
 fc_ses_t <- holt(train,h = 12)
+autoplot(fc_ses_t) 
+
+```
+
+c. Simple exponential smoothing with trend and seasonality
+
+```{r}
 # Simple exponential smoothing with trend and seasonality
-fc_ses_ts <- hw(train, seasonal = "multiplicative", h = 12)
-fc_ses_ts <- hw(train, seasonal = "additive", h = 12)
+fc_ses_ts_m <- hw(train, seasonal = "multiplicative", h = 12)
+fc_ses_ts_a <- hw(train, seasonal = "additive", h = 12)
 
+autoplot(fc_ses_ts_m) 
+autoplot(fc_ses_ts_a)
 ```
 
-### # ETS - error trend seasonality 
+Accuracy
 ```{r}
-
-# Automatic forecasting with exponential smoothing - for a wide range of time series.
-
-fitaus <- ets(austa)
+accuracy(fc_ses_ts_m, data_ts)['Test set','MAPE']
 ```
 
-### cross-validation
+## 4. ETS - error trend seasonality
+
+It is Automatic forecasting with exponential smoothing for a wide range of time series. 
+
 ```{r}
-fets <- function(y, h) {
-  forecast(ets(y), h = h)
-}
+fitets <- ets(train)
 
-# Apply tsCV() for both methods
-e1 <- tsCV(cement, fets, h = 4)
-e2 <- tsCV(cement, snaive, h = 4)
+fc_ETS <- forecast(fitets,h = 12)
+```
 
-# Compute MSE of resulting errors (watch out for missing values)
-mean(e1^2, na.rm = T)
-mean(e2^2, na.rm = T)
+Accuracy
+```{r}
+accuracy(fc_ETS, data_ts)['Test set','MAPE']
+```
+
+
+## 5. Box-Jenkins - ARIMA/SARIMA/SARIMAX
+
+Box-Jenkin's methods are popular choices for short term forecasts. They should not be used beyond few periods since after some periods, the values are constant. 
+
+Box Jenkin's models require a stationary time series. A stationary data does not have trend, seasonality and has mean zero variance over time. Therefore, it is important to remove those components from the time series, in other words *stationarize the data.* 
+
+A signal can be decomposed into a DC and AC component. (The DC component is also called level and the AC components can further be decomposed into trend, seasonality, noise.)
+
+*Trend* - the general short-term change in direction (Up/down)
+
+*Seasonality* - increases and decreases in regular time of day, day of week, etc 
+
+**Stationarity Tests**
+Dickey-Fuller Tests and augmented Dickey-Fuller Test are the commonly used tests for stationarity. KSPSS test, PP test and White noise test(Ljung-Box test) can also be used. 
+
+```{r}
+library(tseries)
+
+adf.test(train) # augmented dicky fuller test
 
 ```
 
-### Data stationarization - stabilize the variance
+> Interpretation: p-value is not less than 0.05, we fail to reject the null hypothesis. This means the time series is non-stationary.
 
+**Data stationarization ** - stabilize the variance
+
+a. Box-Cox transformations
+
+Attempt for various lambda vales until the plot is stationary. 
 ```{r}
 
 # Box-Cox transformations
-data_ts %>% BoxCox(lambda = .3) %>% autoplot()
-data_ts %>% BoxCox(lambda = .1) %>% autoplot()
+train %>% BoxCox(lambda = .3) %>% autoplot()
+train %>% BoxCox(lambda = -0.7) %>% autoplot()
 
-BoxCox.lambda(data_ts)
-
-```
-
-```{r}
-
-# differencing
-diff(data_ts)
-
-# Plot the differenced murder rate
-autoplot(diff(data_ts))
-
-# Plot the ACF of the differenced murder rate
-ggAcf(diff(data_ts))
-```
-
-```{r}
-# seasonal differencing
-# Take logs and seasonal differences of h02
-difflogh02 <- diff(log(data_ts), lag = 12)
-
+BoxCox.lambda(train) # the best lambda
 
 ```
 
-
-8. Box-Jenkins - ARIMA/SARIMA/SARIMAX
-
+b. Differencing
 ```{r}
-
-# Auto.Arima
-fit <- auto.arima(austa)
-
-# Check that the residuals look like white noise
-checkresiduals(fit)
+diff(train)
+autoplot(diff(train)) # Plot of differenced data
 
 ```
 
+The autocorrelation function plots can tell if there is remaining trend/seasonality. 
+
 ```{r}
-# ARIMA models
-austa %>% Arima(order = c(0, 1, 1), include.constant = F) %>% forecast() %>% autoplot()
+ggAcf(diff(train)) 
+```
+
+c. Seasonal differencing
+
+```{r}
+difftrain <- diff(train, lag = 12)
+
+```
+
+d. logarithmic damping - used to reduce variance. 
+
+```{r}
+log_train <- log(train)
+```
+
+### Automatic Arima models
+Auto.Arima is a robust technique which can handle non-stationary time series data. The algorithm finds the types and number of operations needed to stationarize the data and applies accordingly. 
+
+```{r}
+
+fit <- auto.arima(train,seasonal = T) # seasonal = F for non-Seasonal
+fc_arima<- fit %>% forecast(h = 12)
+autoplot(fc_arima)
+```
+
+Accuracy
+```{r}
+accuracy(fc_arima, data_ts)['Test set','MAPE']
+```
 
 
-# Set up forecast functions for ETS and ARIMA models
-fets <- function(x, h) {
-  forecast(ets(x), h = h)
-}
-farima <- function(x, h) {
-  forecast(auto.arima(x), h=h)
-}
+### ARIMA models
 
-# Compute CV errors for ETS on austa as e1
-e1 <- tsCV(austa, fets, 1)
+We can also define customized ARIMA models after defining the parameters order = (p,d,q), seasonal = (P,D,Q). The parameters are found in the process of stationarizing the series. 
+ 
+* p - number of lags (Autoregressive part)
+* d - number of differencing needed
+* q - number of error lags (Moving average part)
 
-# Compute CV errors for ARIMA on austa as e2
-e2 <- tsCV(austa, farima, 1)
+* P - number of lags (Autoregressive part)
+* D - number of seasonal differencing needed
+* Q - number of error lags (Moving average part)
 
-# Find MSE of each model class
-mean(e1^2, na.rm = T)
-mean(e2^2, na.rm = T)
+```{r}
 
-# Plot 10-year forecasts using the best model class
-austa %>% farima(h=10) %>% autoplot()
-
-
+train %>% Arima(order = c(0, 1, 0),seasonal = c(0, 1, 0), include.constant = F) %>% forecast() %>% autoplot()
 
 ```
 
 
+## Hybrid Method
+
+In this section, we will see how we can combine econometric approaches and time series approaches. We will need a second variable at this stage.
+
+### Dynamic regression with auto.arima
+
 ```{r}
 
-# Seasonal ARIMA - lambda = 0
+data_ts_all <- ts(HistoricalData[,c(2,3)], frequency = 12)
 
-fit <- auto.arima(h02, lambda = 0)
+data_ts_phoneTest <- data_ts_all[,"Phone"][37:48] # to be used later
+```
 
-summary(fit)
-
-
-fit2 <- auto.arima(euretail, stepwise = FALSE)
-
+Let's plot them together
+```{r}
+autoplot(data_ts_all, facets = TRUE) # separately
 
 ```
 
+Fit the model
 
 ```{r}
+fit <- auto.arima(data_ts_all[,'Email'], xreg = data_ts_all[,'Phone'], stationary = TRUE)
+```
 
-# Dynamic regression with auto.arima
-autoplot(advert[,'advert'], advert[,'sales'])
+Checking the regression coefficient - positive coefficient indicates direct relationship. 
+```{r}
+# check the regression coefficient
+coefficients(fit) 
+```
 
-# Fit ARIMA model
-fit <- auto.arima(advert[,'advert'], xreg = advert[,'sales'], stationary = TRUE)
+Forecast 
+```{r}
 
-# Check model. Increase in sales for each unit increase in advertising
-salesincrease <- coefficients()(fit)[3]
-
-# Forecast fit as fc
-fc <- forecast(fit, xreg = rep(10,6))
+fc_dynRegre <- forecast(fit, xreg = data_ts_phoneTest)
 
 # Plot fc with x and y labels
-autoplot(fc) + xlab("Month") + ylab("Sales")
+autoplot(fc_dynRegre) + xlab("Month") + ylab("Email")
 
+```
 
-autoplot(advert, facets = TRUE)
+We can also assume non linear relationships between the variables. 
+```{r}
 
-
-
-
-
-# Time plots of demand and temperatures
-autoplot(elec[, c("Demand", "Temperature")], facets = TRUE)
-
-# Matrix of regressors
-xreg <- cbind(MaxTemp = elec[, "Temperature"], 
-              MaxTempSq = elec[, "Temperature"]^2, 
-              Workday = elec[, "Workday"])
+xreg <- cbind(Phone = data_ts_all[,'Phone'], 
+              PhoneSquared = data_ts_all[,'Phone']^2, 
+              PhoneCubed = data_ts_all[,'Phone']^3)
 
 # Fit model
-fit <- auto.arima(elec[, "Demand"], xreg = xreg)
+fit <- auto.arima(data_ts_all[, "Email"], xreg = xreg)
 
-# Forecast fit one day ahead
-forecast(fit, xreg = cbind(20, 20^2, 0))
 
+# Forecast fit 12 month ahead
+fc_dynRegre_NL<- forecast(fit, 
+                          xreg = cbind(data_ts_phoneTest, data_ts_phoneTest^2, data_ts_phoneTest^3))
 
 ```
 
+### Dynamic Harmonic regression - using fourier terms
 
 ```{r}
+# Set up harmonic regressors of order K
+# K must be not be greater than period/2 
 
-# Dynamic Harmonic regression - using fourier terms
-
-# Set up harmonic regressors of order 13
-harmonics <- fourier(gasoline, K = 13)
+harmonics <- fourier(train, K = 1)
 
 # Fit regression model with ARIMA errors
-fit <- auto.arima(gasoline, xreg = harmonics, seasonal = FALSE)
+fit <- auto.arima(train, xreg = harmonics, seasonal = FALSE)
 
-# Forecasts next 3 years
-newharmonics <- fourier(gasoline, K = 13, h = 3*52)
-fc <- forecast(fit, xreg = newharmonics)
+# Forecasts next years
+newharmonics <- fourier(train, K = 1, h = 12)
+fc_fourier <- forecast(fit, xreg = newharmonics)
 
-# Plot forecasts fc
-autoplot(fc)
-
-
-```
-
-
-```{r}
-
-
-# Harmonic regression for multiple seasonality - using tslm() 
-
-
-# Fit a harmonic regression using order 10 for each type of seasonality
-fit <- tslm(taylor ~ fourier(taylor, K = c(10, 10)))
-
-# Forecast 20 working days ahead
-fc <- forecast(fit, newdata = data.frame(fourier(taylor, K = c(10, 10), h = 20*48)))
-
-
+# Plot forecasts fc_fourier
+autoplot(fc_fourier)
 
 ```
 
+Accuracy
+```{r}
+accuracy(fc_fourier, data_ts)['Test set','MAPE']
+```
 
-9. TBATS model - combination of models so far - trignometric models, box cox, arma errors, trend, seasonal
+
+### TBATS model 
+
+Combination of models so far - trignometric models, box cox, arma errors, trend, seasonal. It is great for multiple seasonality time series with strong trend. 
 
 ```{r}
-# great for multiple seasonaliuty and npn-integer seasonality, changing seasonality, and a strong trend
 
-# slow
-
-# Fit a TBATS model to the gas data
-fit <- tbats(gas)
+fit <- tbats(train)
 
 # Forecast the series for the next 5 years
-fc <- forecast(fit, h = 60)
+fc_TBAT <- forecast(fit, h = 12)
 
 # Plot the forecasts
-autoplot(fc)
-
-# Record the Box-Cox parameter and the order of the Fourier terms
-lambda <- 0.082
-K <- 5
-
-
+autoplot(fc_TBAT)
 
 ```
 
-10. Machine Learning Methods
+Accuracy
+```{r}
+accuracy(fc_TBAT, data_ts)['Test set','MAPE']
+```
 
-11. Econometric Methods
+# Conclusion
 
-12. Multilevel forecasting
-
-
+As we have seen above, complex approaches do not always give the best result. It is, therefore, necessary to try multiple methods and choose the one that works the best for your problem. Forecasting is a process where models are continually fine-tuned for better accuracy. R can definitely make some of the hard work that comes with this easier. 
