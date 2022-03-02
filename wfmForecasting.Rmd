@@ -1,0 +1,361 @@
+---
+title: "Workforce Management Forecasting with R"
+author: "Tesfahun Tegene Bosh"
+date: "20/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Forecasting is the first important part of workforce management planning. WFM forecastors creaet the forecast of ,including others, the volume of conversations to be expected in some future time. While there is not a single best method for forecasting, we will discuss some of the most commonly used approaches in time series forecasting. We will also cover the metrics which can indicate the accuracy of the forecast. 
+
+Let's start with some introduction to the time series data. 
+
+```{r cars}
+HistoricalData <- read.csv("C:/Users/48574/Documents/Data Science/TimeSeriesForecast/historicalData.csv")
+HistoricalData$Period <- as.Date(HistoricalData$Period,format = "%d/%m/%Y")
+HistoricalData$Volume <- as.numeric(HistoricalData$Volume)
+str(HistoricalData)
+```
+
+
+```{r}
+# xts package
+
+library(xts)
+library(fpp2)
+# data_ts <- xts(HistoricalData,order.by = HistoricalData$Period)[,2] # define a time series object
+
+data_ts <- ts(HistoricalData[,2], frequency = 12)
+
+```
+
+```{r}
+
+# time series plots
+
+autoplot(data_ts)
+```
+
+```{r}
+
+ggseasonplot(data_ts)
+
+```
+
+```{r}
+
+ggseasonplot(data_ts, polar = T)
+```
+
+```{r}
+# plots
+ggsubseriesplot(data_ts)
+
+# lag plot of the oil data
+gglagplot(data_ts)
+
+# Create an ACF plot
+ggAcf(data_ts)
+
+```
+
+### Data partitioning
+
+```{r}
+
+train <- window(data_ts, start = c(2019,1))
+train <- subset(data_ts, end = length(data_ts) - 12)
+
+```
+
+## Methods
+
+1. Naive Method/ Random walk without drift
+
+```{r}
+
+fc_naive <- naive(train, 12)
+summary(fc_naive)
+autoplot(fc_naive)
+
+checkresiduals(fc_naive) # Do they look like white noise? 
+```
+
+Seasonal naive
+
+```{r}
+
+fc_snaive <- snaive(train, 12)
+summary(fc_snaive)
+autoplot(fc_snaive)
+
+checkresiduals(fc_snaive)
+```
+
+
+```{r}
+#accuracy
+accuracy(fc_snaive, data_ts)
+
+```
+
+2. Random Walk with Drift
+3. Simple Averaging Method
+4. Weighted Average 
+5. Moving Average method
+6. Weighted moving average
+7.Holt-Winters exponential smoothing method (triple exponential smoothing)
+
+```{r}
+
+# Simple exponential smoothing 
+fc_ses <- ses(data_ts, h = 12)
+
+
+
+autoplot(fc_ses) + autolayer(fitted(fc_ses))
+
+```
+
+
+```{r}
+
+# Simple exponential smoothing with trend
+fc_ses_t <- holt(train,h = 12)
+# Simple exponential smoothing with trend and seasonality
+fc_ses_ts <- hw(train, seasonal = "multiplicative", h = 12)
+fc_ses_ts <- hw(train, seasonal = "additive", h = 12)
+
+```
+
+### # ETS - error trend seasonality 
+```{r}
+
+# Automatic forecasting with exponential smoothing - for a wide range of time series.
+
+fitaus <- ets(austa)
+```
+
+### cross-validation
+```{r}
+fets <- function(y, h) {
+  forecast(ets(y), h = h)
+}
+
+# Apply tsCV() for both methods
+e1 <- tsCV(cement, fets, h = 4)
+e2 <- tsCV(cement, snaive, h = 4)
+
+# Compute MSE of resulting errors (watch out for missing values)
+mean(e1^2, na.rm = T)
+mean(e2^2, na.rm = T)
+
+```
+
+### Data stationarization - stabilize the variance
+
+```{r}
+
+# Box-Cox transformations
+data_ts %>% BoxCox(lambda = .3) %>% autoplot()
+data_ts %>% BoxCox(lambda = .1) %>% autoplot()
+
+BoxCox.lambda(data_ts)
+
+```
+
+```{r}
+
+# differencing
+diff(data_ts)
+
+# Plot the differenced murder rate
+autoplot(diff(data_ts))
+
+# Plot the ACF of the differenced murder rate
+ggAcf(diff(data_ts))
+```
+
+```{r}
+# seasonal differencing
+# Take logs and seasonal differences of h02
+difflogh02 <- diff(log(data_ts), lag = 12)
+
+
+```
+
+
+8. Box-Jenkins - ARIMA/SARIMA/SARIMAX
+
+```{r}
+
+# Auto.Arima
+fit <- auto.arima(austa)
+
+# Check that the residuals look like white noise
+checkresiduals(fit)
+
+```
+
+```{r}
+# ARIMA models
+austa %>% Arima(order = c(0, 1, 1), include.constant = F) %>% forecast() %>% autoplot()
+
+
+# Set up forecast functions for ETS and ARIMA models
+fets <- function(x, h) {
+  forecast(ets(x), h = h)
+}
+farima <- function(x, h) {
+  forecast(auto.arima(x), h=h)
+}
+
+# Compute CV errors for ETS on austa as e1
+e1 <- tsCV(austa, fets, 1)
+
+# Compute CV errors for ARIMA on austa as e2
+e2 <- tsCV(austa, farima, 1)
+
+# Find MSE of each model class
+mean(e1^2, na.rm = T)
+mean(e2^2, na.rm = T)
+
+# Plot 10-year forecasts using the best model class
+austa %>% farima(h=10) %>% autoplot()
+
+
+
+```
+
+
+```{r}
+
+# Seasonal ARIMA - lambda = 0
+
+fit <- auto.arima(h02, lambda = 0)
+
+summary(fit)
+
+
+fit2 <- auto.arima(euretail, stepwise = FALSE)
+
+
+```
+
+
+```{r}
+
+# Dynamic regression with auto.arima
+autoplot(advert[,'advert'], advert[,'sales'])
+
+# Fit ARIMA model
+fit <- auto.arima(advert[,'advert'], xreg = advert[,'sales'], stationary = TRUE)
+
+# Check model. Increase in sales for each unit increase in advertising
+salesincrease <- coefficients()(fit)[3]
+
+# Forecast fit as fc
+fc <- forecast(fit, xreg = rep(10,6))
+
+# Plot fc with x and y labels
+autoplot(fc) + xlab("Month") + ylab("Sales")
+
+
+autoplot(advert, facets = TRUE)
+
+
+
+
+
+# Time plots of demand and temperatures
+autoplot(elec[, c("Demand", "Temperature")], facets = TRUE)
+
+# Matrix of regressors
+xreg <- cbind(MaxTemp = elec[, "Temperature"], 
+              MaxTempSq = elec[, "Temperature"]^2, 
+              Workday = elec[, "Workday"])
+
+# Fit model
+fit <- auto.arima(elec[, "Demand"], xreg = xreg)
+
+# Forecast fit one day ahead
+forecast(fit, xreg = cbind(20, 20^2, 0))
+
+
+```
+
+
+```{r}
+
+# Dynamic Harmonic regression - using fourier terms
+
+# Set up harmonic regressors of order 13
+harmonics <- fourier(gasoline, K = 13)
+
+# Fit regression model with ARIMA errors
+fit <- auto.arima(gasoline, xreg = harmonics, seasonal = FALSE)
+
+# Forecasts next 3 years
+newharmonics <- fourier(gasoline, K = 13, h = 3*52)
+fc <- forecast(fit, xreg = newharmonics)
+
+# Plot forecasts fc
+autoplot(fc)
+
+
+```
+
+
+```{r}
+
+
+# Harmonic regression for multiple seasonality - using tslm() 
+
+
+# Fit a harmonic regression using order 10 for each type of seasonality
+fit <- tslm(taylor ~ fourier(taylor, K = c(10, 10)))
+
+# Forecast 20 working days ahead
+fc <- forecast(fit, newdata = data.frame(fourier(taylor, K = c(10, 10), h = 20*48)))
+
+
+
+```
+
+
+9. TBATS model - combination of models so far - trignometric models, box cox, arma errors, trend, seasonal
+
+```{r}
+# great for multiple seasonaliuty and npn-integer seasonality, changing seasonality, and a strong trend
+
+# slow
+
+# Fit a TBATS model to the gas data
+fit <- tbats(gas)
+
+# Forecast the series for the next 5 years
+fc <- forecast(fit, h = 60)
+
+# Plot the forecasts
+autoplot(fc)
+
+# Record the Box-Cox parameter and the order of the Fourier terms
+lambda <- 0.082
+K <- 5
+
+
+
+```
+
+10. Machine Learning Methods
+
+11. Econometric Methods
+
+12. Multilevel forecasting
+
+
